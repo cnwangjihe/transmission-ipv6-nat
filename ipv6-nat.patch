@@ -1,0 +1,73 @@
+diff --git a/libtransmission/net.c b/libtransmission/net.c
+index 567de25e1..91bbb86ec 100644
+--- a/libtransmission/net.c
++++ b/libtransmission/net.c
+@@ -690,6 +690,45 @@ static int tr_globalAddress(int af, void* addr, int* addr_len)
+     }
+ }
+
++static int tr_globalAddress_internet(int af, void* addr, int* addr_len)
++{
++    if (af != AF_INET6 || *addr_len != 16)
++        return -1;
++
++    // send req to our echo server
++    struct sockaddr_in6 sin6;
++    struct sockaddr* sa;
++    socklen_t salen;
++
++    memset(&sin6, 0, sizeof(sin6));
++    sin6.sin6_family = AF_INET6;
++    evutil_inet_pton(AF_INET6, "2001::1234", &sin6.sin6_addr);
++    sin6.sin6_port = htons(12345);
++    sa = (struct sockaddr*)&sin6;
++    salen = sizeof(sin6);
++
++    tr_socket_t s = socket(AF_INET6, SOCK_STREAM, 0);
++    struct timeval tv;
++    tv.tv_sec = 2;
++    tv.tv_usec = 0;
++    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
++
++    if (connect(s, sa, salen))
++    {
++        tr_netCloseSocket(s);
++        return -1;
++    }
++    char buf[0x41];
++    memset(buf, 0, sizeof(buf));
++    if (recv(s, buf, 0x40, 0) == -1)
++    {
++        tr_netCloseSocket(s);
++        return -1;
++    }
++    evutil_inet_pton(AF_INET6, buf, addr);
++    return 1;
++}
++
+ /* Return our global IPv6 address, with caching. */
+ unsigned char const* tr_globalIPv6(void)
+ {
+@@ -702,7 +741,8 @@ unsigned char const* tr_globalIPv6(void)
+     if (last_time < now - 1800)
+     {
+         int addrlen = 16;
+-        int const rc = tr_globalAddress(AF_INET6, ipv6, &addrlen);
++        // int const rc = tr_globalAddress(AF_INET6, ipv6, &addrlen);
++        int const rc = tr_globalAddress_internet(AF_INET6, ipv6, &addrlen);
+         have_ipv6 = rc >= 0 && addrlen == 16;
+         last_time = now;
+     }
+diff --git a/libtransmission/tr-udp.c b/libtransmission/tr-udp.c
+index f04ab87b9..cffc01376 100644
+--- a/libtransmission/tr-udp.c
++++ b/libtransmission/tr-udp.c
+@@ -180,7 +180,7 @@ static void rebind_ipv6(tr_session* ss, bool force)
+     sin6.sin6_port = htons(ss->udp_port);
+     public_addr = tr_sessionGetPublicAddress(ss, TR_AF_INET6, &is_default);
+
+-    if (public_addr != NULL && !is_default)
++    if (public_addr != NULL)
+     {
+         sin6.sin6_addr = public_addr->addr.addr6;
+     }
