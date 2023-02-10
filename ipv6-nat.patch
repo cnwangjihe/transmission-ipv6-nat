@@ -1,11 +1,11 @@
 diff --git a/libtransmission/net.c b/libtransmission/net.c
-index 567de25e1..91bbb86ec 100644
+index 567de25e1..bc6af0ff4 100644
 --- a/libtransmission/net.c
 +++ b/libtransmission/net.c
-@@ -690,6 +690,45 @@ static int tr_globalAddress(int af, void* addr, int* addr_len)
+@@ -690,10 +690,51 @@ static int tr_globalAddress(int af, void* addr, int* addr_len)
      }
  }
-
+ 
 +static int tr_globalAddress_internet(int af, void* addr, int* addr_len)
 +{
 +    if (af != AF_INET6 || *addr_len != 16)
@@ -25,7 +25,7 @@ index 567de25e1..91bbb86ec 100644
 +
 +    tr_socket_t s = socket(AF_INET6, SOCK_STREAM, 0);
 +    struct timeval tv;
-+    tv.tv_sec = 2;
++    tv.tv_sec = 5;
 +    tv.tv_usec = 0;
 +    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
 +
@@ -42,22 +42,38 @@ index 567de25e1..91bbb86ec 100644
 +        return -1;
 +    }
 +    evutil_inet_pton(AF_INET6, buf, addr);
++    tr_logAddNamedError("IPv6_DBG_e3af2d", "IPv6 fetched: %s", buf);
 +    return 1;
 +}
 +
  /* Return our global IPv6 address, with caching. */
  unsigned char const* tr_globalIPv6(void)
  {
-@@ -702,7 +741,8 @@ unsigned char const* tr_globalIPv6(void)
+     static unsigned char ipv6[16];
++    unsigned char new_ipv6[16];
+     static time_t last_time = 0;
+     static bool have_ipv6 = false;
+     time_t const now = tr_time();
+@@ -702,8 +743,17 @@ unsigned char const* tr_globalIPv6(void)
      if (last_time < now - 1800)
      {
          int addrlen = 16;
 -        int const rc = tr_globalAddress(AF_INET6, ipv6, &addrlen);
+-        have_ipv6 = rc >= 0 && addrlen == 16;
 +        // int const rc = tr_globalAddress(AF_INET6, ipv6, &addrlen);
-+        int const rc = tr_globalAddress_internet(AF_INET6, ipv6, &addrlen);
-         have_ipv6 = rc >= 0 && addrlen == 16;
++        int const rc = tr_globalAddress_internet(AF_INET6, new_ipv6, &addrlen);
++        // preserve IPv6 even if we do not get a IP from echo server
++        if (rc >= 0 && addrlen == 16)
++        {
++            memcpy(ipv6, new_ipv6, addrlen);
++            if (!have_ipv6)
++                have_ipv6 = 1;
++        }
++        else
++            tr_logAddNamedError("IPv6_DBG_e3af2d", "IPv6 fetch failed!");
          last_time = now;
      }
+ 
 diff --git a/libtransmission/tr-udp.c b/libtransmission/tr-udp.c
 index f04ab87b9..cffc01376 100644
 --- a/libtransmission/tr-udp.c
@@ -65,7 +81,7 @@ index f04ab87b9..cffc01376 100644
 @@ -180,7 +180,7 @@ static void rebind_ipv6(tr_session* ss, bool force)
      sin6.sin6_port = htons(ss->udp_port);
      public_addr = tr_sessionGetPublicAddress(ss, TR_AF_INET6, &is_default);
-
+ 
 -    if (public_addr != NULL && !is_default)
 +    if (public_addr != NULL)
      {
